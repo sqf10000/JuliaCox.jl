@@ -6,37 +6,35 @@ using DataFrames
 using DataFramesMeta
 using StatsBase
 
-function genecox(mydf, genename, factorcol, positivevaule, negativevalue; quant_range = 0.2:0.02:0.81)
-    d = DataFrame()
-    pos_df = @subset(mydf, $factorcol .== positivevaule)
-    neg_df = @subset(mydf, $factorcol .== negativevalue)
-    for n in quant_range
-        qcut = quantile(mydf[:, genename], n)
-        ###all#######
-        try
-            all = DataFrame(coeftable(coxph(hcat(ifelse.(mydf[:, genename] .> qcut, 1, 0)), mydf.event)))
-            replace!(all[!, :Name], "x1" => join([genename, "all", string(n), string(qcut)], "_"))
-            append!(d, all)
-        catch
-            push!(d,[join([genename, "all", string(n),string(qcut)], "_") 0 0 0 0])
-        end
-        ###positive#######
-        try
-            pos = DataFrame(coeftable(coxph(hcat(ifelse.(pos_df[:, genename] .> qcut, 1, 0)), pos_df.event)))
-            replace!(pos[!, :Name], "x1" => join([genename, "pos", string(n),string(qcut)], "_"))
-            append!(d, pos)
-        catch
-            push!(d,[join([genename, "pos", string(n),string(qcut)], "_")  0 0 0 0])
-        end
-        ###negative######
-        try
-            neg = DataFrame(coeftable(coxph(hcat(ifelse.(neg_df[:, genename] .> qcut, 1, 0)), neg_df.event)))
-            replace!(neg[!, :Name], "x1" => join([genename, "neg", string(n),string(qcut)], "_"))
-            append!(d, neg)
-        catch
-            push!(d,[join([genename, "neg", string(n),string(qcut)], "_")  0 0 0 0])
-        end
+function docox(genename,mymatrix, mydf_event,qcut,n,mylabel)
+    n1 = sum(mymatrix)
+    n2 = length(mymatrix)-n1
+    try
+        all = DataFrame(coeftable(coxph(mymatrix, mydf_event)))
+        replace!(all[!, :Name], "x1" => join([genename, mylabel, string(n),string(qcut),string(n1),string(n2)], "_"))
+        return all
+    catch
+        return DataFrame("Name" => join([genename, mylabel, string(n),string(qcut),string(n1),string(n2)], "_"),"Estimate" => 0,"Std.Error"=>0,"z value" =>0,"Pr(>|z|)"=>0)
+    end
+    
+end
 
+function genecox(mydf_df,pos_df,neg_df, genename; quant_range = 0.2:0.02:0.81)
+    d = DataFrame()
+    for n in quant_range
+        qcut = quantile(mydf_df[:, genename], n)
+        ###all#######
+        mydf_mymatrix = hcat(ifelse.(mydf_df[:, genename] .> qcut, 1, 0))
+        mydf_re = docox(genename,mydf_mymatrix, mydf_df.event,qcut,n,"all")
+        append!(d, mydf_re)
+        ###positive#######
+        pos_mymatrix = hcat(ifelse.(pos_df[:, genename] .> qcut, 1, 0))
+        pos_re = docox(genename,pos_mymatrix, pos_df.event,qcut,n,"pos")
+        append!(d, pos_re)
+        ###negative######
+        neg_mymatrix = hcat(ifelse.(neg_df[:, genename] .> qcut, 1, 0))
+        neg_re = docox(genename,neg_mymatrix, neg_df.event,qcut,n,"neg")
+        append!(d, neg_re)
     end
     return d
 end
@@ -45,16 +43,18 @@ function dopipeline(mydf, factorcol, positivevaule, negativevalue,inexclude,gene
     myresult = DataFrame()
     ####group data ######    
     mydf.event = EventTime.(mydf.survivalMonth, mydf.survivalEvent .== 1.0)
+    pos_df = @subset(mydf, $factorcol .== positivevaule)
+    neg_df = @subset(mydf, $factorcol .== negativevalue)
     ####run ######
     if inexclude =="y"
         for genename in genelist
-            append!(myresult, genecox(mydf, genename, factorcol, positivevaule, negativevalue))
+            append!(myresult, genecox(mydf,pos_df,neg_df, genename))
         end
     elseif inexclude =="n"
         for genename in names(mydf)
             if !(genename in genelist) && (genename !="Column1") && (genename !="event") && (genename !=factorcol)
                 #println(genename)  
-                append!(myresult, genecox(mydf, genename, factorcol, positivevaule, negativevalue))
+                append!(myresult, genecox(mydf,pos_df,neg_df, genename ))
             end
         end
     else
@@ -87,6 +87,3 @@ function julia_main()::Cint
   end
 
 end
-
-
-
